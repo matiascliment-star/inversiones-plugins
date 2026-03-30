@@ -270,14 +270,11 @@ SELECT ticker, close, date FROM bonds_and_rates WHERE date = (SELECT MAX(date) F
 
 NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los datos como lo haría un portfolio manager experimentado.
 
-**REGLA ESTRICTA: El top 5 final DEBE incluir al menos 2 picks de FASE 1b (discovery).**
-- 2-3 picks del top 50 por score (FASE 1a) — los que el modelo cuantitativo favorece
-- 2-3 picks del discovery (FASE 1b) — los que tienen señales cualitativas fuertes que el score no captura
-- Si NO incluís picks de discovery, el análisis está INCOMPLETO. El usuario quiere ver cosas que el score solo no ve.
-
-Si un ticker aparece en AMBAS fuentes (buen score + insider buying + acumulación institucional), es una señal de altísima convicción. Destacarlo.
-
-Si un ticker solo aparece en discovery pero NO tiene buen score, explicar por qué lo incluís a pesar del score bajo: "El score es 45 pero hay $5M en insider buying esta semana y Goldman acaba de duplicar posición — eso pesa más que un ranking cuantitativo."
+**ESTRUCTURA DEL OUTPUT: 5 picks del score + 2 picks del discovery = 7 recomendaciones totales.**
+- **TOP 5 PARA COMPRAR** — del top 50 por score (FASE 1a). El ranking cuantitativo.
+- **2 PICKS DISCOVERY** — sección separada, de FASE 1b. Cosas que el score no ve pero que tienen señales cualitativas fuertes (insider buying, acumulación institucional, oversold+quality, gap vs target, sentimiento extremo).
+- Si un ticker aparece en AMBAS fuentes (buen score + señal discovery), mencionarlo como "doble señal" en el top 5.
+- Los picks discovery pueden tener score mediocre o incluso bajo — explicar por qué la señal cualitativa pesa más: "El score es 45 pero hay $5M en insider buying y Goldman duplicó posición — eso importa más que un ranking."
 
 #### 2a. Elegir la estrategia según el contexto
 - Mirá el **market regime**. Si es "bear" o alta volatilidad, priorizá quality y low-vol. Si es "bull", dale más peso a momentum.
@@ -366,6 +363,26 @@ Si viene de discovery, explicar QUÉ señal llamó la atención y por qué impor
 
 **Riesgo principal:** [Qué puede salir mal]
 **Earnings:** [Próxima fecha si aplica]
+```
+
+#### 2 PICKS DISCOVERY (sección separada del top 5)
+
+Estos NO vienen del score. Vienen de las queries de FASE 1b. Formato:
+
+```
+### DISCOVERY [#N] TICKER — Nombre
+**Descubierto por:** Insider buying / Acumulación institucional / Oversold+Quality / Gap vs target / Sentimiento noticias
+**Score:** X/100 (puede ser bajo — no importa, la señal es otra)
+**Precio:** $X
+
+**Por qué llama la atención:** [Explicar la señal específica que lo hace interesante.
+Ej: "El CEO compró $3M en acciones propias el 25/3 mientras el mercado caía.
+Eso es convicción extrema — no ponés $3M de tu bolsillo si no sabés algo."]
+
+**Datos de la señal:**
+- [Detalle específico: quién compró, cuánto, cuándo / qué fondo acumuló / RSI + quality / etc.]
+
+**Riesgo:** [Por qué podría ser una trampa]
 ```
 
 #### TOP 5 PARA VENDER / EVITAR
