@@ -15,6 +15,8 @@ Key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxeH
 
 Para consultar: `execute_sql` de Supabase MCP, o fetch directo al REST API.
 
+**NOTA CONTEXTO:** El modelo tiene 1M tokens de contexto. Usarlo al máximo — traer datos amplios, no recortar. Si una respuesta SQL es muy grande y se guarda en archivo, leerlo completo.
+
 ## Instrucciones paso a paso
 
 ### FASE 0: SEMÁFORO DE PROTECCIÓN (ejecutar PRIMERO)
@@ -104,7 +106,7 @@ SELECT f.ticker, f.total_composite, f.momentum_composite, f.value_composite, f.q
 FROM factor_scores f
 WHERE f.date = (SELECT MAX(date) FROM factor_scores)
 ORDER BY f.total_composite DESC NULLS LAST
-LIMIT 50;
+LIMIT 100;
 ```
 
 ### FASE 1b: Discovery — buscar señales FUERA del top 50 (OBLIGATORIO)
@@ -118,9 +120,9 @@ SELECT ia.ticker, ia.owner_name, ia.transaction_type, ia.shares, ia.value, ia.da
 FROM insider_activity ia
 WHERE ia.date >= NOW() - INTERVAL '30 days'
   AND ia.acquired_disposed = 'A'
-  AND ia.value > 100000
+  AND ia.value > 50000
 ORDER BY ia.value DESC
-LIMIT 20;
+LIMIT 50;
 ```
 
 **1b-ii. Acumulación institucional extrema (>50% aumento en posición)**
@@ -132,7 +134,7 @@ WHERE ih.change_pct > 50
   AND ih.date = (SELECT MAX(date) FROM institutional_holdings)
   AND ih.shares > 500000
 ORDER BY ih.change_pct DESC
-LIMIT 30;
+LIMIT 50;
 ```
 
 **1b-iii. Oversold con buenos fundamentals (RSI < 35 + quality > 60)**
@@ -145,7 +147,7 @@ WHERE t.date = (SELECT MAX(date) FROM technical_indicators)
   AND t.rsi_14 < 35
   AND f.quality_composite > 60
 ORDER BY f.quality_composite DESC
-LIMIT 15;
+LIMIT 30;
 ```
 
 **1b-iv. Noticias con sentimiento extremo positivo (últimos 7 días)**
@@ -160,7 +162,7 @@ WHERE n.date >= NOW() - INTERVAL '7 days'
 GROUP BY n.ticker
 HAVING COUNT(*) >= 3
 ORDER BY avg_sentiment DESC, news_count DESC
-LIMIT 15;
+LIMIT 30;
 ```
 
 **1b-v. Gap entre precio y target de analistas (>30% upside)**
@@ -180,7 +182,7 @@ WHERE fund.analyst_target_price IS NOT NULL
   AND ((fund.analyst_target_price::numeric / p.close::numeric) - 1) > 0.30
   AND fund.analyst_buy > fund.analyst_sell
 ORDER BY upside_pct DESC
-LIMIT 15;
+LIMIT 30;
 ```
 
 NOTA: Las queries de discovery son simples a propósito. Si un ticker aparece en discovery, buscar su score y fundamentals después con queries ad-hoc. Esto evita JOINs complejos que pueden fallar en Supabase.
@@ -191,7 +193,7 @@ SELECT ticker, pe_ratio, forward_pe, pb_ratio, dividend_yield, roe, profit_margi
        operating_margin, beta, analyst_buy, analyst_hold, analyst_sell,
        analyst_target_price, book_value_per_share, shares_outstanding
 FROM fundamentals
-WHERE ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 50);
+WHERE ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 100);
 ```
 
 **1c. Precios y técnicos actuales**
@@ -200,7 +202,7 @@ SELECT p.ticker, p.close, p.close_usd, p.volume, p.day_50_ma, p.day_100_ma, p.da
        p.market_cap, p.week_52_high, p.week_52_low, p.currency
 FROM prices p
 WHERE p.date = (SELECT MAX(date) FROM prices)
-AND p.ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 50);
+AND p.ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 100);
 ```
 
 **1d. Technical indicators**
@@ -208,7 +210,7 @@ AND p.ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date)
 SELECT ticker, rsi_14, macd, macd_signal, atr_14
 FROM technical_indicators
 WHERE date = (SELECT MAX(date) FROM technical_indicators)
-AND ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 50);
+AND ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 100);
 ```
 
 **1e. Noticias recientes (últimos 14 días)**
@@ -217,16 +219,16 @@ SELECT ticker, title, date, sentiment_polarity, sentiment_pos, sentiment_neg, so
 FROM news
 WHERE date >= NOW() - INTERVAL '14 days'
 ORDER BY date DESC
-LIMIT 200;
+LIMIT 500;
 ```
 
-**1f. Insider activity (últimos 60 días)**
+**1f. Insider activity (últimos 90 días)**
 ```sql
 SELECT ticker, owner_name, transaction_type, shares, value, date, acquired_disposed
 FROM insider_activity
-WHERE date >= NOW() - INTERVAL '60 days'
+WHERE date >= NOW() - INTERVAL '90 days'
 ORDER BY value DESC NULLS LAST
-LIMIT 200;
+LIMIT 500;
 ```
 
 **1g. Institutional holdings (cambios recientes)**
@@ -234,7 +236,7 @@ LIMIT 200;
 SELECT ticker, institution_name, shares, change_shares, change_pct, date, report_date
 FROM institutional_holdings
 ORDER BY date DESC
-LIMIT 200;
+LIMIT 500;
 ```
 NOTA: `report_date` es el quarter del 13F filing (ej: 2025-12-31 = Q4 2025). `date` es cuando se cargó en Supabase. Siempre mencionar el report_date al hablar de movimientos institucionales.
 
