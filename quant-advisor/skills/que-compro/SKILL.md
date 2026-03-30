@@ -194,7 +194,7 @@ Analistas ven valor que el mercado no está priceando.
 ```sql
 SELECT fund.ticker, fund.analyst_target_price::float as target,
        p.close::float as price,
-       ROUND(((fund.analyst_target_price::float / p.close::float) - 1) * 100, 1) as upside_pct,
+       ROUND(((fund.analyst_target_price::numeric / p.close::numeric) - 1) * 100, 1) as upside_pct,
        fund.analyst_buy, fund.analyst_hold, fund.analyst_sell,
        fund.pe_ratio, fund.roe,
        f.total_composite
