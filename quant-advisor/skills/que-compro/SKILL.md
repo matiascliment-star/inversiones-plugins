@@ -107,22 +107,15 @@ ORDER BY f.total_composite DESC NULLS LAST
 LIMIT 50;
 ```
 
-### FASE 1b: Discovery — buscar señales FUERA del top 50
+### FASE 1b: Discovery — buscar señales FUERA del top 50 (OBLIGATORIO)
 
-El score composite es UNA lente. Estas queries buscan oportunidades que el score solo no ve. Ejecutar en paralelo con FASE 1.
+**ESTAS QUERIES SON OBLIGATORIAS. NO SALTEARLAS.** El score composite es UNA lente. Estas queries buscan oportunidades que el score no ve. Ejecutar en paralelo con las de FASE 1. Si alguna falla o devuelve vacío, mencionarlo pero seguir con las demás.
 
 **1b-i. Insider buying agresivo (cualquier ticker, no solo top 50)**
 Insiders comprando con su propia plata es la señal más potente que existe. Si un CEO compra $2M de su propia empresa, sabe algo.
 ```sql
-SELECT ia.ticker, ia.owner_name, ia.transaction_type, ia.shares, ia.value, ia.date,
-       f.total_composite, fund.pe_ratio, fund.roe
+SELECT ia.ticker, ia.owner_name, ia.transaction_type, ia.shares, ia.value, ia.date
 FROM insider_activity ia
-LEFT JOIN LATERAL (
-  SELECT total_composite FROM factor_scores
-  WHERE ticker = ia.ticker AND date = (SELECT MAX(date) FROM factor_scores)
-  LIMIT 1
-) f ON true
-LEFT JOIN fundamentals fund ON fund.ticker = ia.ticker
 WHERE ia.date >= NOW() - INTERVAL '30 days'
   AND ia.acquired_disposed = 'A'
   AND ia.value > 100000
@@ -133,16 +126,8 @@ LIMIT 20;
 **1b-ii. Acumulación institucional extrema (>50% aumento en posición)**
 Cuando un fondo grande duplica posición, es una convicción fuerte.
 ```sql
-SELECT ih.ticker, ih.institution_name, ih.shares, ih.change_shares, ih.change_pct,
-       ih.report_date, f.total_composite, fund.pe_ratio, fund.market_cap
+SELECT ih.ticker, ih.institution_name, ih.shares, ih.change_shares, ih.change_pct, ih.report_date
 FROM institutional_holdings ih
-LEFT JOIN LATERAL (
-  SELECT total_composite FROM factor_scores
-  WHERE ticker = ih.ticker AND date = (SELECT MAX(date) FROM factor_scores)
-  LIMIT 1
-) f ON true
-LEFT JOIN fundamentals fund ON fund.ticker = ih.ticker
-LEFT JOIN prices p ON p.ticker = ih.ticker AND p.date = (SELECT MAX(date) FROM prices)
 WHERE ih.change_pct > 50
   AND ih.date = (SELECT MAX(date) FROM institutional_holdings)
   AND ih.shares > 500000
@@ -153,14 +138,9 @@ LIMIT 30;
 **1b-iii. Oversold con buenos fundamentals (RSI < 35 + quality > 60)**
 Acciones castigadas injustamente — el mercado las tiró con el agua sucia.
 ```sql
-SELECT t.ticker, t.rsi_14, t.atr_14,
-       f.total_composite, f.quality_composite, f.value_composite,
-       fund.pe_ratio, fund.roe, fund.profit_margin,
-       p.close, p.day_200_ma, p.week_52_high, p.week_52_low
+SELECT t.ticker, t.rsi_14, f.total_composite, f.quality_composite, f.value_composite
 FROM technical_indicators t
 JOIN factor_scores f ON f.ticker = t.ticker AND f.date = (SELECT MAX(date) FROM factor_scores)
-LEFT JOIN fundamentals fund ON fund.ticker = t.ticker
-LEFT JOIN prices p ON p.ticker = t.ticker AND p.date = (SELECT MAX(date) FROM prices)
 WHERE t.date = (SELECT MAX(date) FROM technical_indicators)
   AND t.rsi_14 < 35
   AND f.quality_composite > 60
@@ -168,22 +148,16 @@ ORDER BY f.quality_composite DESC
 LIMIT 15;
 ```
 
-**1b-iv. Noticias con sentimiento extremo positivo en tickers fuera del top 50**
-Algo está pasando que el score no captura todavía — el mercado está reaccionando.
+**1b-iv. Noticias con sentimiento extremo positivo (últimos 7 días)**
+Algo está pasando que el score no captura todavía.
 ```sql
 SELECT n.ticker, COUNT(*) as news_count,
-       AVG(n.sentiment_polarity::float) as avg_sentiment,
-       MAX(n.title) as latest_headline,
-       f.total_composite
+       AVG(n.sentiment_polarity::numeric) as avg_sentiment,
+       MAX(n.title) as latest_headline
 FROM news n
-LEFT JOIN LATERAL (
-  SELECT total_composite FROM factor_scores
-  WHERE ticker = n.ticker AND date = (SELECT MAX(date) FROM factor_scores)
-  LIMIT 1
-) f ON true
 WHERE n.date >= NOW() - INTERVAL '7 days'
-  AND n.sentiment_polarity::float > 0.8
-GROUP BY n.ticker, f.total_composite
+  AND n.sentiment_polarity::numeric > 0.8
+GROUP BY n.ticker
 HAVING COUNT(*) >= 3
 ORDER BY avg_sentiment DESC, news_count DESC
 LIMIT 15;
@@ -192,27 +166,24 @@ LIMIT 15;
 **1b-v. Gap entre precio y target de analistas (>30% upside)**
 Analistas ven valor que el mercado no está priceando.
 ```sql
-SELECT fund.ticker, fund.analyst_target_price::float as target,
-       p.close::float as price,
+SELECT fund.ticker,
+       fund.analyst_target_price::numeric as target,
+       p.close::numeric as price,
        ROUND(((fund.analyst_target_price::numeric / p.close::numeric) - 1) * 100, 1) as upside_pct,
        fund.analyst_buy, fund.analyst_hold, fund.analyst_sell,
-       fund.pe_ratio, fund.roe,
-       f.total_composite
+       fund.pe_ratio, fund.roe
 FROM fundamentals fund
 JOIN prices p ON p.ticker = fund.ticker AND p.date = (SELECT MAX(date) FROM prices)
-LEFT JOIN LATERAL (
-  SELECT total_composite FROM factor_scores
-  WHERE ticker = fund.ticker AND date = (SELECT MAX(date) FROM factor_scores)
-  LIMIT 1
-) f ON true
 WHERE fund.analyst_target_price IS NOT NULL
-  AND fund.analyst_target_price::float > 0
-  AND p.close::float > 0
-  AND ((fund.analyst_target_price::float / p.close::float) - 1) > 0.30
+  AND fund.analyst_target_price::numeric > 0
+  AND p.close::numeric > 0
+  AND ((fund.analyst_target_price::numeric / p.close::numeric) - 1) > 0.30
   AND fund.analyst_buy > fund.analyst_sell
 ORDER BY upside_pct DESC
 LIMIT 15;
 ```
+
+NOTA: Las queries de discovery son simples a propósito. Si un ticker aparece en discovery, buscar su score y fundamentals después con queries ad-hoc. Esto evita JOINs complejos que pueden fallar en Supabase.
 
 **1b. Fundamentals de esos top 50**
 ```sql
@@ -299,9 +270,10 @@ SELECT ticker, close, date FROM bonds_and_rates WHERE date = (SELECT MAX(date) F
 
 NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los datos como lo haría un portfolio manager experimentado.
 
-**IMPORTANTE: El top 5 final debe mezclar AMBAS fuentes:**
+**REGLA ESTRICTA: El top 5 final DEBE incluir al menos 2 picks de FASE 1b (discovery).**
 - 2-3 picks del top 50 por score (FASE 1a) — los que el modelo cuantitativo favorece
 - 2-3 picks del discovery (FASE 1b) — los que tienen señales cualitativas fuertes que el score no captura
+- Si NO incluís picks de discovery, el análisis está INCOMPLETO. El usuario quiere ver cosas que el score solo no ve.
 
 Si un ticker aparece en AMBAS fuentes (buen score + insider buying + acumulación institucional), es una señal de altísima convicción. Destacarlo.
 
