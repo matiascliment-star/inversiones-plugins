@@ -107,6 +107,113 @@ ORDER BY f.total_composite DESC NULLS LAST
 LIMIT 50;
 ```
 
+### FASE 1b: Discovery — buscar señales FUERA del top 50
+
+El score composite es UNA lente. Estas queries buscan oportunidades que el score solo no ve. Ejecutar en paralelo con FASE 1.
+
+**1b-i. Insider buying agresivo (cualquier ticker, no solo top 50)**
+Insiders comprando con su propia plata es la señal más potente que existe. Si un CEO compra $2M de su propia empresa, sabe algo.
+```sql
+SELECT ia.ticker, ia.owner_name, ia.transaction_type, ia.shares, ia.value, ia.date,
+       f.total_composite, fund.pe_ratio, fund.roe
+FROM insider_activity ia
+LEFT JOIN LATERAL (
+  SELECT total_composite FROM factor_scores
+  WHERE ticker = ia.ticker AND date = (SELECT MAX(date) FROM factor_scores)
+  LIMIT 1
+) f ON true
+LEFT JOIN fundamentals fund ON fund.ticker = ia.ticker
+WHERE ia.date >= NOW() - INTERVAL '30 days'
+  AND ia.acquired_disposed = 'A'
+  AND ia.value > 100000
+ORDER BY ia.value DESC
+LIMIT 20;
+```
+
+**1b-ii. Acumulación institucional extrema (>50% aumento en posición)**
+Cuando un fondo grande duplica posición, es una convicción fuerte.
+```sql
+SELECT ih.ticker, ih.institution_name, ih.shares, ih.change_shares, ih.change_pct,
+       ih.report_date, f.total_composite, fund.pe_ratio, fund.market_cap
+FROM institutional_holdings ih
+LEFT JOIN LATERAL (
+  SELECT total_composite FROM factor_scores
+  WHERE ticker = ih.ticker AND date = (SELECT MAX(date) FROM factor_scores)
+  LIMIT 1
+) f ON true
+LEFT JOIN fundamentals fund ON fund.ticker = ih.ticker
+LEFT JOIN prices p ON p.ticker = ih.ticker AND p.date = (SELECT MAX(date) FROM prices)
+WHERE ih.change_pct > 50
+  AND ih.date = (SELECT MAX(date) FROM institutional_holdings)
+  AND ih.shares > 500000
+ORDER BY ih.change_pct DESC
+LIMIT 30;
+```
+
+**1b-iii. Oversold con buenos fundamentals (RSI < 35 + quality > 60)**
+Acciones castigadas injustamente — el mercado las tiró con el agua sucia.
+```sql
+SELECT t.ticker, t.rsi_14, t.atr_14,
+       f.total_composite, f.quality_composite, f.value_composite,
+       fund.pe_ratio, fund.roe, fund.profit_margin,
+       p.close, p.day_200_ma, p.week_52_high, p.week_52_low
+FROM technical_indicators t
+JOIN factor_scores f ON f.ticker = t.ticker AND f.date = (SELECT MAX(date) FROM factor_scores)
+LEFT JOIN fundamentals fund ON fund.ticker = t.ticker
+LEFT JOIN prices p ON p.ticker = t.ticker AND p.date = (SELECT MAX(date) FROM prices)
+WHERE t.date = (SELECT MAX(date) FROM technical_indicators)
+  AND t.rsi_14 < 35
+  AND f.quality_composite > 60
+ORDER BY f.quality_composite DESC
+LIMIT 15;
+```
+
+**1b-iv. Noticias con sentimiento extremo positivo en tickers fuera del top 50**
+Algo está pasando que el score no captura todavía — el mercado está reaccionando.
+```sql
+SELECT n.ticker, COUNT(*) as news_count,
+       AVG(n.sentiment_polarity::float) as avg_sentiment,
+       MAX(n.title) as latest_headline,
+       f.total_composite
+FROM news n
+LEFT JOIN LATERAL (
+  SELECT total_composite FROM factor_scores
+  WHERE ticker = n.ticker AND date = (SELECT MAX(date) FROM factor_scores)
+  LIMIT 1
+) f ON true
+WHERE n.date >= NOW() - INTERVAL '7 days'
+  AND n.sentiment_polarity::float > 0.8
+GROUP BY n.ticker, f.total_composite
+HAVING COUNT(*) >= 3
+ORDER BY avg_sentiment DESC, news_count DESC
+LIMIT 15;
+```
+
+**1b-v. Gap entre precio y target de analistas (>30% upside)**
+Analistas ven valor que el mercado no está priceando.
+```sql
+SELECT fund.ticker, fund.analyst_target_price::float as target,
+       p.close::float as price,
+       ROUND(((fund.analyst_target_price::float / p.close::float) - 1) * 100, 1) as upside_pct,
+       fund.analyst_buy, fund.analyst_hold, fund.analyst_sell,
+       fund.pe_ratio, fund.roe,
+       f.total_composite
+FROM fundamentals fund
+JOIN prices p ON p.ticker = fund.ticker AND p.date = (SELECT MAX(date) FROM prices)
+LEFT JOIN LATERAL (
+  SELECT total_composite FROM factor_scores
+  WHERE ticker = fund.ticker AND date = (SELECT MAX(date) FROM factor_scores)
+  LIMIT 1
+) f ON true
+WHERE fund.analyst_target_price IS NOT NULL
+  AND fund.analyst_target_price::float > 0
+  AND p.close::float > 0
+  AND ((fund.analyst_target_price::float / p.close::float) - 1) > 0.30
+  AND fund.analyst_buy > fund.analyst_sell
+ORDER BY upside_pct DESC
+LIMIT 15;
+```
+
 **1b. Fundamentals de esos top 50**
 ```sql
 SELECT ticker, pe_ratio, forward_pe, pb_ratio, dividend_yield, roe, profit_margin,
@@ -190,7 +297,15 @@ SELECT ticker, close, date FROM bonds_and_rates WHERE date = (SELECT MAX(date) F
 
 ### FASE 2: Análisis con criterio propio
 
-NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los datos como lo haría un portfolio manager experimentado:
+NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los datos como lo haría un portfolio manager experimentado.
+
+**IMPORTANTE: El top 5 final debe mezclar AMBAS fuentes:**
+- 2-3 picks del top 50 por score (FASE 1a) — los que el modelo cuantitativo favorece
+- 2-3 picks del discovery (FASE 1b) — los que tienen señales cualitativas fuertes que el score no captura
+
+Si un ticker aparece en AMBAS fuentes (buen score + insider buying + acumulación institucional), es una señal de altísima convicción. Destacarlo.
+
+Si un ticker solo aparece en discovery pero NO tiene buen score, explicar por qué lo incluís a pesar del score bajo: "El score es 45 pero hay $5M en insider buying esta semana y Goldman acaba de duplicar posición — eso pesa más que un ranking cuantitativo."
 
 #### 2a. Elegir la estrategia según el contexto
 - Mirá el **market regime**. Si es "bear" o alta volatilidad, priorizá quality y low-vol. Si es "bull", dale más peso a momentum.
@@ -256,21 +371,26 @@ Mostrar DUAL_MOM, GTAA, VOL_TARGET y CRASH_PROT solo como contexto adicional.
 No usar para decisiones de timing.
 
 #### TOP 5 PARA COMPRAR
+Mezclar picks del score (FASE 1a) con descubrimientos (FASE 1b). Indicar el origen de cada pick.
+
 Para cada una:
 ```
 ### [#N] TICKER — Nombre de la empresa
+**Origen:** Score Top 50 / Discovery (insider buying) / Discovery (institucional) / Discovery (oversold+quality) / Ambos
 **Sector:** X | **Precio:** $X | **Score:** X/100 | **Upside estimado:** X%
 
 **Tesis:** [2-3 oraciones explicando POR QUÉ invertir en esta empresa. No números fríos:
-la historia, la ventaja competitiva, la tendencia, el catalizador]
+la historia, la ventaja competitiva, la tendencia, el catalizador.
+Si viene de discovery, explicar QUÉ señal llamó la atención y por qué importa más que el score.]
 
 **Lo que dicen los datos:**
 - Momentum: X | Value: X | Quality: X
 - P/E: X (fwd: X) | ROE: X% | Margen: X%
-- Insiders: [comprando/vendiendo] — [detalle]
-- Institucionales: [acumulando/reduciendo]
+- Insiders: [comprando/vendiendo] — [detalle con montos y nombres]
+- Institucionales: [acumulando/reduciendo — quién, cuánto, qué quarter]
 - Sentimiento noticias: [bullish/neutral/bearish] — [headline clave]
 - Técnicos: RSI X | vs MA200: +X% | ATR: X
+- Target analistas: $X (upside X%) — [X buy / X hold / X sell]
 
 **Riesgo principal:** [Qué puede salir mal]
 **Earnings:** [Próxima fecha si aplica]
