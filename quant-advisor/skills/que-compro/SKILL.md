@@ -240,10 +240,7 @@ LIMIT 500;
 ```
 NOTA: `report_date` es el quarter del 13F filing (ej: 2025-12-31 = Q4 2025). `date` es cuando se cargó en Supabase. Siempre mencionar el report_date al hablar de movimientos institucionales.
 
-**1h. Market regime actual**
-```sql
-SELECT * FROM market_regime ORDER BY date DESC LIMIT 1;
-```
+**1h. Market regime — NO CONSULTAR. Tabla deprecada. Usar el semáforo de protección (FASE 0) como régimen de mercado.**
 
 **1i. Earnings próximos (para evitar riesgo de earnings)**
 ```sql
@@ -281,7 +278,7 @@ NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los da
 - Los picks discovery pueden tener score mediocre o incluso bajo — explicar por qué la señal cualitativa pesa más: "El score es 45 pero hay $5M en insider buying y Goldman duplicó posición — eso importa más que un ranking."
 
 #### 2a. Elegir la estrategia según el contexto
-- Mirá el **market regime**. Si es "bear" o alta volatilidad, priorizá quality y low-vol. Si es "bull", dale más peso a momentum.
+- Mirá el **semáforo de protección** (FASE 0) como régimen. Si DAA/VAA están RISK_OFF, priorizá quality y low-vol. Si están RISK_ON, dale más peso a momentum.
 - Mirá las **tasas** (US10Y, US2Y). Si las tasas están subiendo fuerte, penalizá growth/tech puro y favorecé value.
 - Si hay **earnings inminentes** en un ticker, advertí el riesgo. No lo descartés automáticamente pero mencionalo.
 - Evaluá si el composite score refleja una tesis coherente o si es un número alto por artefactos.
