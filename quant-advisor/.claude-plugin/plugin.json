@@ -1,0 +1,9 @@
+{
+  "name": "quant-advisor",
+  "version": "1.0.0",
+  "description": "Asesor financiero cuantitativo. Analiza acciones US/AR/BR con factor scoring (Fama-French), sistema de proteccion academico (VAA/DAA/PAA/FABER), noticias, insiders, institucionales, y genera recomendaciones con tesis fundamentada y sizing escalonado.",
+  "author": {
+    "name": "Estudio Garcia Climent"
+  },
+  "keywords": ["inversiones", "quant", "acciones", "proteccion", "VAA", "DAA", "factor-scoring", "supabase"]
+}

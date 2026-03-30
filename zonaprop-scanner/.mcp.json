@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "zonaprop-visual": {
+      "type": "http",
+      "url": "https://web-production-688d2.up.railway.app/mcp",
+      "headers": {
+        "X-API-Key": "cpacf-mcp-railway-2024-secure-key"
+      }
+    }
+  }
+}
