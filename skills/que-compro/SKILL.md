@@ -1,0 +1,311 @@
+# Asesor Financiero Quant
+
+Skill de asesoramiento de inversiones basado en datos cuantitativos de Supabase. Analiza todo el universo de acciones (US, AR, BR), cruza factores cuantitativos con noticias, sentimiento, insiders e institucionales, y genera recomendaciones con tesis de inversión fundamentada.
+
+## Cuándo usar este skill
+
+Cuando el usuario pregunte "qué compro", "en qué invierto", "recomendaciones", "qué está bueno", "oportunidades de inversión", "ideas de inversión", "qué hacer con la plata", "asesorame", "qué onda el mercado", "qué conviene", "analizar mercado", "top picks".
+
+## Conexión Supabase
+
+```
+URL: https://cqxqleesxgvuuyasmmyx.supabase.co
+Key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxeHFsZWVzeGd2dXV5YXNtbXl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0MTY3NzUsImV4cCI6MjA4MTk5Mjc3NX0.MuV2YsUsfU6wBJwLTM2SHNJmP7MHifOdFw4DrqxwpfY
+```
+
+Para consultar: `execute_sql` de Supabase MCP, o fetch directo al REST API.
+
+## Instrucciones paso a paso
+
+### FASE 0: SEMÁFORO DE PROTECCIÓN (ejecutar PRIMERO)
+
+Antes de recomendar NADA, consultar el sistema de protección. Son 8 sistemas académicos (Faber, Dual Momentum, VAA, DAA, PAA, GTAA, Vol Target, Crash Protection) que analizan si el mercado está en modo risk-on o risk-off.
+
+**0a. Estado actual de protección**
+```sql
+SELECT date, consensus, risk_on_count, total_systems, spy_price, vix,
+       signals->'FABER'->>'signal' as faber,
+       signals->'DUAL_MOM'->>'signal' as dual_mom,
+       signals->'VAA'->>'signal' as vaa,
+       signals->'DAA'->>'signal' as daa,
+       signals->'PAA'->>'signal' as paa,
+       signals->'GTAA'->>'signal' as gtaa,
+       signals->'VOL_TARGET'->>'signal' as vol_target,
+       signals->'CRASH_PROT'->>'signal' as crash_prot
+FROM protection_dashboard
+WHERE consensus IS NOT NULL
+ORDER BY date DESC LIMIT 1;
+```
+
+**0b. Cambios recientes de señal (últimos 14 días)**
+```sql
+SELECT date, system, old_signal, new_signal, timestamp
+FROM protection_dashboard_changes
+WHERE date >= CURRENT_DATE - INTERVAL '14 days'
+ORDER BY timestamp DESC;
+```
+
+**0c. Detalle de DAA y VAA (últimos 10 días) — los que importan para timing**
+```sql
+SELECT date, spy_price, vix,
+       signals->'DAA'->>'signal' as daa_signal,
+       signals->'DAA'->'allocation' as daa_alloc,
+       signals->'VAA'->>'signal' as vaa_signal,
+       signals->'VAA'->'allocation' as vaa_alloc,
+       signals->'PAA'->>'signal' as paa_signal,
+       signals->'FABER'->>'signal' as faber_signal
+FROM protection_dashboard
+WHERE date >= CURRENT_DATE - INTERVAL '10 days'
+ORDER BY date DESC;
+```
+
+#### Jerarquía de sistemas (basada en papers académicos)
+
+**Para SALIDAS (protección):** VAA y DAA son los mejores.
+- VAA (Keller 2017): Momentum ponderado (12×1M + 4×3M + 2×6M + 1×12M)/19 sobre 4 activos ofensivos (SPY, VEA, VWO, AGG). El peso del 63% en 1M lo hace extremadamente reactivo. Ideal para detectar deterioro rápido.
+- DAA (Keller 2018): Usa "canary assets" (VWO + AGG). Si ambos canaries tienen momentum negativo → 100% defensivo. Igual de rápido que VAA para salir.
+- Cuando VAA **o** DAA van a RISK_OFF → señal de alerta inmediata.
+
+**Para ENTRADAS:** DAA es el mejor, confirmado por PAA y FABER.
+- DAA (Keller 2018): Keller lo diseñó específicamente para mejorar las entradas de VAA. Solo necesita que 2 canary assets (VWO emergentes + AGG bonos) sean positivos. VWO tiende a hacer piso ANTES que SPY, y AGG positivo confirma que las condiciones de crédito son favorables. Menos whipsaws que VAA en entradas.
+- PAA (Keller 2016): Breadth-based (12 activos). Confirma que la recuperación es amplia, no solo 1-2 activos rebotando.
+- FABER (Faber 2007): SMA 10 meses. Lento pero sin falsas alarmas. Confirmación final para sizing full.
+- VAA: NO usar para entradas — tiene falsos RISK_ON por el peso excesivo del 1M (63%). Sí usar para salidas.
+
+**Sistemas descartados para timing:**
+- DUAL_MOM (Antonacci 2014): Lookback 12M = demasiado lento. Solo sirve para bear markets > 1 año.
+- VOL_TARGET: Sistema de sizing, no de timing. Nunca se da vuelta en correcciones normales.
+- CRASH_PROT: Demasiado ruidoso — la condición de vol oscila constantemente. Genera 6+ cambios por mes.
+- GTAA: Misma lentitud que FABER. Útil para ver qué asset classes recuperan primero, no como trigger.
+
+#### Framework de sizing según señales
+
+| Señal | Condición | Sizing | Por qué |
+|---|---|---|---|
+| **Protección** | VAA o DAA → RISK_OFF | Reducir a 0-25% o salir | Los sistemas más rápidos detectaron peligro |
+| **Early entry** | DAA → RISK_ON (solo) | 25% | Un canary giró; el ciclo puede estar cambiando |
+| **Entry** | DAA RISK_ON + PAA mejorando | 50% | Leading indicators + breadth confirman |
+| **Confirmación** | DAA + PAA ambos RISK_ON | 75% | Recuperación amplia confirmada |
+| **Full conviction** | DAA + PAA + FABER los tres RISK_ON | 100% | Tendencia alcista confirmada, sin riesgo de whipsaw |
+
+#### IMPORTANTE: El semáforo NO cancela las recomendaciones, las MODULA:
+- Siempre mostrar el estado de DAA y VAA de forma prominente (son los que importan)
+- Mostrar las allocations de DAA (qué canaries están positivos/negativos y sus scores)
+- Mostrar el VIX actual y qué implica
+- Si el usuario ya tiene posiciones, advertir sobre tightening de stops cuando VAA/DAA van a RISK_OFF
+
+### FASE 1: Recolección de datos (ejecutar queries en paralelo)
+
+Ejecutar estas consultas SQL via `execute_sql` del MCP de Supabase (project ref: `cqxqleesxgvuuyasmmyx`):
+
+**1a. Factor scores (top ranked)**
+```sql
+SELECT f.ticker, f.total_composite, f.momentum_composite, f.value_composite, f.quality_composite, f.date
+FROM factor_scores f
+WHERE f.date = (SELECT MAX(date) FROM factor_scores)
+ORDER BY f.total_composite DESC NULLS LAST
+LIMIT 50;
+```
+
+**1b. Fundamentals de esos top 50**
+```sql
+SELECT ticker, pe_ratio, forward_pe, pb_ratio, dividend_yield, roe, profit_margin,
+       operating_margin, beta, analyst_buy, analyst_hold, analyst_sell,
+       analyst_target_price, book_value_per_share, shares_outstanding
+FROM fundamentals
+WHERE ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 50);
+```
+
+**1c. Precios y técnicos actuales**
+```sql
+SELECT p.ticker, p.close, p.close_usd, p.volume, p.day_50_ma, p.day_100_ma, p.day_200_ma,
+       p.market_cap, p.week_52_high, p.week_52_low, p.currency
+FROM prices p
+WHERE p.date = (SELECT MAX(date) FROM prices)
+AND p.ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 50);
+```
+
+**1d. Technical indicators**
+```sql
+SELECT ticker, rsi_14, macd, macd_signal, atr_14
+FROM technical_indicators
+WHERE date = (SELECT MAX(date) FROM technical_indicators)
+AND ticker IN (SELECT ticker FROM factor_scores WHERE date = (SELECT MAX(date) FROM factor_scores) ORDER BY total_composite DESC NULLS LAST LIMIT 50);
+```
+
+**1e. Noticias recientes (últimos 14 días)**
+```sql
+SELECT ticker, title, date, sentiment_polarity, sentiment_pos, sentiment_neg, source
+FROM news
+WHERE date >= NOW() - INTERVAL '14 days'
+ORDER BY date DESC
+LIMIT 200;
+```
+
+**1f. Insider activity (últimos 60 días)**
+```sql
+SELECT ticker, owner_name, transaction_type, shares, value, date, acquired_disposed
+FROM insider_activity
+WHERE date >= NOW() - INTERVAL '60 days'
+ORDER BY value DESC NULLS LAST
+LIMIT 200;
+```
+
+**1g. Institutional holdings (cambios recientes)**
+```sql
+SELECT ticker, institution_name, shares, change_shares, change_pct, date, report_date
+FROM institutional_holdings
+ORDER BY date DESC
+LIMIT 200;
+```
+NOTA: `report_date` es el quarter del 13F filing (ej: 2025-12-31 = Q4 2025). `date` es cuando se cargó en Supabase. Siempre mencionar el report_date al hablar de movimientos institucionales.
+
+**1h. Market regime actual**
+```sql
+SELECT * FROM market_regime ORDER BY date DESC LIMIT 1;
+```
+
+**1i. Earnings próximos (para evitar riesgo de earnings)**
+```sql
+SELECT ticker, report_date, eps_estimate, revenue_estimate
+FROM earnings_calendar
+WHERE report_date >= CURRENT_DATE AND report_date <= CURRENT_DATE + INTERVAL '14 days'
+ORDER BY report_date ASC;
+```
+
+**1j. Portfolio actual del usuario**
+```sql
+SELECT ps.snapshot_date, pp.symbol, pp.description, pp.asset_type, pp.quantity,
+       pp.market_value, pp.cost_basis, pp.gain_loss_pct, pp.coupon_rate, pp.maturity_date
+FROM portfolio_snapshots ps
+JOIN portfolio_positions pp ON pp.snapshot_id = ps.id
+WHERE ps.snapshot_date = (SELECT MAX(snapshot_date) FROM portfolio_snapshots)
+ORDER BY pp.market_value DESC;
+```
+
+**1k. Bonos y tasas (contexto macro)**
+```sql
+SELECT ticker, close, date FROM bonds_and_rates WHERE date = (SELECT MAX(date) FROM bonds_and_rates);
+```
+
+### FASE 2: Análisis con criterio propio
+
+NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los datos como lo haría un portfolio manager experimentado:
+
+#### 2a. Elegir la estrategia según el contexto
+- Mirá el **market regime**. Si es "bear" o alta volatilidad, priorizá quality y low-vol. Si es "bull", dale más peso a momentum.
+- Mirá las **tasas** (US10Y, US2Y). Si las tasas están subiendo fuerte, penalizá growth/tech puro y favorecé value.
+- Si hay **earnings inminentes** en un ticker, advertí el riesgo. No lo descartés automáticamente pero mencionalo.
+- Evaluá si el composite score refleja una tesis coherente o si es un número alto por artefactos.
+
+#### 2b. Construir la tesis de inversión para cada pick
+Para cada recomendación, articulá una tesis real:
+- **¿Por qué esta empresa?** - No digas "tiene score alto". Explicá: ¿qué negocio es? ¿por qué está creciendo? ¿qué ventaja competitiva tiene?
+- **¿Qué dicen las noticias?** - Resumí el sentimiento. ¿Hay algo que el mercado está viendo o ignorando?
+- **¿Qué hacen los insiders?** - Si hay compras fuertes de insiders, es una señal potente. Si están vendiendo, investigá por qué.
+- **¿Qué hacen los institucionales?** - ¿Están acumulando o vendiendo? ¿Quién? (BlackRock comprando es distinto de un fondo chico)
+- **¿Cuál es el catalizador?** - ¿Qué evento o tendencia podría mover el precio? (earnings, producto nuevo, macro, sector rotation)
+- **¿Cuál es el riesgo?** - Sé honesto. ¿Qué puede salir mal?
+
+#### 2c. Validación técnica
+- RSI > 70: sobrecomprado, cuidado con el timing
+- Precio por debajo de MA200: tendencia bajista, solo entrar con tesis value fuerte
+- ATR alto: posición más chica por volatilidad
+- Cerca de 52-week high: momentum fuerte pero menos upside fácil
+- Cerca de 52-week low: puede ser oportunidad value o cuchillo cayendo
+
+### FASE 3: Output - Recomendaciones
+
+#### SEMÁFORO DE PROTECCIÓN (mostrar PRIMERO, siempre)
+
+Arrancar el output con el estado de los 3 sistemas que importan para timing:
+
+```
+## SEMÁFORO DE PROTECCIÓN
+
+### Sistemas de SALIDA (los más rápidos)
+| Sistema | Señal | Allocation | Detalle |
+|---|---|---|---|
+| **VAA** (Keller 2017) | RISK_ON/OFF/MIXED | [allocation actual] | [cuántos ofensivos negativos] |
+| **DAA** (Keller 2018) | RISK_ON/OFF/MIXED | [allocation actual] | Canaries: VWO [+/-] AGG [+/-] |
+
+### Sistemas de ENTRADA (confirmación)
+| Sistema | Señal | Detalle |
+|---|---|---|
+| **DAA** | [señal] | [estado canaries con scores si disponible] |
+| **PAA** (Keller 2016) | [señal] | [X/12 activos con momentum positivo] |
+| **FABER** (Faber 2007) | [señal] | SPY $X vs SMA $X |
+
+### Estado actual de entrada
+| Condición | Status | Sizing |
+|---|---|---|
+| DAA RISK_ON | ✅/❌ | 25% (early) → 50% (full DAA) |
+| DAA + PAA RISK_ON | ✅/❌ | 75% |
+| DAA + PAA + FABER RISK_ON | ✅/❌ | 100% |
+
+**SPY:** $XXX | **VIX:** XX.X
+**Sizing recomendado ahora:** X% (basado en las condiciones de arriba)
+
+[Si sizing < 100%]: Las recomendaciones de abajo aplican con sizing reducido al X%.
+Monitorear DAA — cuando sus canaries (VWO y AGG) tengan ambos momentum positivo,
+es señal de escalar posiciones.
+```
+
+### Otros sistemas (referencia, NO decisorios)
+Mostrar DUAL_MOM, GTAA, VOL_TARGET y CRASH_PROT solo como contexto adicional.
+No usar para decisiones de timing.
+
+#### TOP 5 PARA COMPRAR
+Para cada una:
+```
+### [#N] TICKER — Nombre de la empresa
+**Sector:** X | **Precio:** $X | **Score:** X/100 | **Upside estimado:** X%
+
+**Tesis:** [2-3 oraciones explicando POR QUÉ invertir en esta empresa. No números fríos:
+la historia, la ventaja competitiva, la tendencia, el catalizador]
+
+**Lo que dicen los datos:**
+- Momentum: X | Value: X | Quality: X
+- P/E: X (fwd: X) | ROE: X% | Margen: X%
+- Insiders: [comprando/vendiendo] — [detalle]
+- Institucionales: [acumulando/reduciendo]
+- Sentimiento noticias: [bullish/neutral/bearish] — [headline clave]
+- Técnicos: RSI X | vs MA200: +X% | ATR: X
+
+**Riesgo principal:** [Qué puede salir mal]
+**Earnings:** [Próxima fecha si aplica]
+```
+
+#### TOP 5 PARA VENDER / EVITAR
+Mismo formato pero explicando:
+- ¿Por qué el score es malo o está cayendo?
+- ¿Hay señales de deterioro? (insiders vendiendo, institucionales saliendo, noticias negativas)
+- Si el usuario tiene alguno de estos en portfolio, alertar explícitamente
+
+#### PANORAMA MACRO
+Breve resumen (3-5 líneas) de:
+- Régimen de mercado actual
+- Dirección de tasas y qué implica
+- Rotación sectorial visible en los datos
+- Cualquier riesgo macro relevante
+
+#### SOBRE TU PORTFOLIO
+Si el usuario tiene posiciones, comentar:
+- ¿Alguna posición actual está en la lista de venta?
+- ¿Hay sobreexposición sectorial?
+- ¿Los bonos están bien dado el contexto de tasas?
+- Sugerencia de rebalanceo si aplica
+
+### FASE 4: Disclaimer
+
+Siempre cerrar con:
+> **Disclaimer:** Este análisis es generado automáticamente a partir de datos cuantitativos y no constituye asesoramiento financiero profesional. Las decisiones de inversión son responsabilidad del usuario. Rendimientos pasados no garantizan resultados futuros.
+
+## Notas importantes
+
+- SIEMPRE usar datos frescos de Supabase, nunca inventar datos
+- Si una query falla o no devuelve datos, mencionarlo y trabajar con lo que hay
+- Ser honesto sobre la incertidumbre. "No sé" es mejor que inventar una tesis
+- El usuario es un inversor sofisticado (tiene un quant dashboard). No hace falta explicar qué es P/E o RSI, pero sí articular la tesis
+- Si el usuario pregunta por un ticker específico, hacer deep-dive en ese ticker con el mismo framework
+- Los tickers argentinos terminan en .BA, los brasileños en .SA — incluirlos en el análisis
