@@ -248,8 +248,10 @@ SELECT * FROM market_regime ORDER BY date DESC LIMIT 1;
 SELECT ticker, report_date, eps_estimate, revenue_estimate
 FROM earnings_calendar
 WHERE report_date >= CURRENT_DATE AND report_date <= CURRENT_DATE + INTERVAL '14 days'
-ORDER BY report_date ASC;
+ORDER BY report_date ASC
+LIMIT 50;
 ```
+NOTA: Si esta query devuelve resultado demasiado grande o error, ignorarla y seguir. No es crítica.
 
 **1j. Portfolio actual del usuario**
 ```sql
@@ -270,10 +272,10 @@ SELECT ticker, close, date FROM bonds_and_rates WHERE date = (SELECT MAX(date) F
 
 NO seas un ranking frío. Sos un asesor financiero con criterio. Analizá los datos como lo haría un portfolio manager experimentado.
 
-**ESTRUCTURA DEL OUTPUT: 5 picks del score + 2 picks del discovery = 7 recomendaciones totales.**
+**ESTRUCTURA DEL OUTPUT: 5 picks del score + 5 picks del discovery = 10 recomendaciones totales.**
 - **TOP 5 PARA COMPRAR** — del top 50 por score (FASE 1a). El ranking cuantitativo.
-- **2 PICKS DISCOVERY** — sección separada, de FASE 1b. Cosas que el score no ve pero que tienen señales cualitativas fuertes (insider buying, acumulación institucional, oversold+quality, gap vs target, sentimiento extremo).
-- Si un ticker aparece en AMBAS fuentes (buen score + señal discovery), mencionarlo como "doble señal" en el top 5.
+- **5 PICKS DISCOVERY** — sección separada, de FASE 1b. Cosas que el score no ve pero que tienen señales cualitativas fuertes (insider buying, acumulación institucional, oversold+quality, gap vs target, sentimiento extremo). Idealmente 1 pick de cada query de discovery (1b-i a 1b-v), eligiendo el más interesante de cada una.
+- Si un ticker aparece en AMBAS fuentes (buen score + señal discovery), mencionarlo como "doble señal" en el top 5 y NO repetirlo en discovery — elegir otro de discovery.
 - Los picks discovery pueden tener score mediocre o incluso bajo — explicar por qué la señal cualitativa pesa más: "El score es 45 pero hay $5M en insider buying y Goldman duplicó posición — eso importa más que un ranking."
 
 #### 2a. Elegir la estrategia según el contexto
@@ -365,9 +367,9 @@ Si viene de discovery, explicar QUÉ señal llamó la atención y por qué impor
 **Earnings:** [Próxima fecha si aplica]
 ```
 
-#### 2 PICKS DISCOVERY (sección separada del top 5)
+#### 5 PICKS DISCOVERY (sección separada del top 5)
 
-Estos NO vienen del score. Vienen de las queries de FASE 1b. Formato:
+Estos NO vienen del score. Vienen de las queries de FASE 1b. Elegir idealmente 1 de cada query (insider, institucional, oversold, sentimiento, target gap). Formato:
 
 ```
 ### DISCOVERY [#N] TICKER — Nombre
