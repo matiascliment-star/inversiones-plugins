@@ -369,72 +369,106 @@ Antes de armar picks, respondete estas preguntas:
 - **¿El timing es bueno?** — RSI, relación con MAs, ATR para sizing.
 - **¿Cuál es el ratio riesgo/reward?** — Calcular stop loss, stop gain, y ratio. Ver sección 2e.
 
-#### 2e. Cálculo de Risk/Reward por Escenarios de Valuación (OBLIGATORIO para cada recomendación)
+#### 2e. Sistema de Risk/Reward en 2 capas (OBLIGATORIO para cada recomendación)
 
-**IMPORTANTE: NO usar targets de analistas, ATR, ni soportes técnicos para definir upside/downside.** Esos son datos de terceros o líneas en un gráfico. Claude debe formar su PROPIO criterio basado en escenarios fundamentales.
+Cada recomendación necesita pasar DOS filtros independientes: el fundamental y el técnico. Los dos tienen que dar bien. No se puede "hackear" el ratio mezclando un stop técnico chico con un target fundamental grande.
 
-Para CADA ticker que se considere recomendar, construir 3 escenarios de valuación ANTES de incluirlo en el output. Si el ratio bear/bull es desfavorable (< 1.5:1), NO recomendar — va a watchlist con la explicación.
+##### CAPA 1: POSICIONAMIENTO FUNDAMENTAL — "¿Vale la pena mirar este trade?"
 
-**Paso 1: Obtener el historial de P/E (query 1m)**
+Usar los datos de la query 1m (historial de EPS + P/E) para construir 3 escenarios de valuación.
 
-Con los datos de la query 1m, identificar:
-- **P/E promedio histórico** (los últimos 2-3 años, excluyendo extremos)
-- **P/E mínimo de ciclo** (el piso al que cotizó en su peor momento con ganancias positivas)
-- **P/E máximo razonable** (el techo donde cotizó en momentos buenos, excluyendo burbujas)
-- **Tendencia del EPS**: ¿está subiendo, bajando, o en pico de ciclo?
+**Paso 1:** Con el historial de P/E, identificar:
+- **P/E promedio histórico** (últimos 2-3 años, excluyendo extremos)
+- **P/E mínimo de ciclo** (piso con ganancias positivas)
+- **P/E máximo razonable** (techo en momentos buenos, sin burbujas)
+- **Tendencia del EPS**: ¿subiendo, bajando, o en pico de ciclo?
 
-**Paso 2: Formar opinión sobre el EPS futuro**
+**Paso 2:** Formar opinión propia sobre el EPS futuro basado en tendencia, noticias, contexto macro, y forward P/E vs trailing. Definir 3 niveles:
+- **EPS Bear:** Qué EPS si las cosas van mal (referencia: EPS de un período anterior malo)
+- **EPS Base:** Escenario más probable (forward estimate o ajuste propio)
+- **EPS Bull:** Qué EPS si las cosas van bien (catalizador concreto)
 
-Basado en:
-- Tendencia reciente del EPS (¿acelerando o desacelerando?)
-- Noticias relevantes (¿hay pricing pressure, pérdida de mercado, viento de cola?)
-- Contexto del sector y macro
-- Forward P/E vs trailing P/E (¿el mercado espera caída o crecimiento?)
-
-Definir 3 niveles de EPS:
-- **EPS Bear:** Qué pasa si las cosas van mal. Usar el EPS de un período anterior malo como referencia, o aplicar un haircut al EPS actual basado en el riesgo concreto (recesión, caída de commodity, pricing pressure, etc.)
-- **EPS Base:** El escenario más probable. Puede ser el forward estimate, o un ajuste propio si Claude cree que el consenso está equivocado.
-- **EPS Bull:** Qué pasa si las cosas van bien. El EPS se mantiene o mejora por catalizador concreto.
-
-**Paso 3: Asignar múltiplos a cada escenario**
-
-No usar un P/E fijo para los 3 escenarios. En escenario bear el mercado comprime múltiplos, en bull los expande:
-- **Bear:** P/E mínimo histórico × EPS Bear
-- **Base:** P/E promedio histórico × EPS Base
-- **Bull:** P/E máximo razonable × EPS Bull
-
+**Paso 3:** Calcular precios objetivo:
 ```
-Precio Bear = EPS Bear × P/E mínimo
-Precio Base = EPS Base × P/E promedio
-Precio Bull = EPS Bull × P/E alto razonable
+Precio Bear = EPS Bear × P/E mínimo histórico
+Precio Base = EPS Base × P/E promedio histórico
+Precio Bull = EPS Bull × P/E máximo razonable
 ```
 
-**Paso 4: Calcular el ratio**
+**Paso 4:** Evaluar posicionamiento — ¿dónde está el precio actual dentro del rango?
 
-```
-Stop Loss = Precio Bear (ahí se vende si la tesis falla)
-Stop Gain = Precio Bull (ahí se toman ganancias)
-Upside = (Precio Bull - Precio actual) / Precio actual × 100
-Downside = (Precio actual - Precio Bear) / Precio actual × 100
-Ratio = Upside / Downside
-```
+| Posición del precio | Resultado |
+|---|---|
+| **Tercio inferior** (cerca del bear) | ✅ Hay valor. Pasar a Capa 2. |
+| **Tercio medio** (cerca del base) | ⚠️ El mercado ya lo tiene priceado. Solo pasar a Capa 2 si el ratio técnico es > 3:1. |
+| **Tercio superior** (cerca del bull) | ❌ Todo priceado. No recomendar. Va a watchlist con: "esperar pullback a $X". |
 
-**Paso 5: Reglas de decisión**
+**IMPORTANTE:** El posicionamiento fundamental NO genera un ratio numérico. Su función es filtrar: ¿hay recorrido por arriba o ya se priceó todo? Si no hay recorrido, no importa cuán bueno sea el setup técnico.
 
-- Ratio ≥ 3:1 → ALTA CONVICCIÓN (la asimetría está claramente a favor)
-- Ratio 2:1 a 3:1 → MEDIA CONVICCIÓN (aceptable con buena tesis)
-- Ratio 1.5:1 a 2:1 → Solo si la tesis es excepcional y el semáforo es favorable
-- Ratio < 1.5:1 → **NO RECOMENDAR.** Va a watchlist. Explicar qué escenario haría que el ratio mejore (ej: "si cae a $X, el ratio pasa a 2:1 — ahí sí vale la pena").
-
-**Para ETFs y activos sin EPS (commodities, bonds, managed futures):**
-
-Usar un approach análogo pero con el driver fundamental correspondiente:
-- **Commodity ETFs:** Escenarios de precio del commodity subyacente (ej: petróleo $55/$70/$90) × relación histórica ETF/commodity
-- **Bond ETFs:** Escenarios de tasa (ej: 10Y yield 3.5%/4.3%/5.0%) × duration del ETF
+**Para ETFs sin EPS** usar el driver fundamental correspondiente:
+- **Commodity ETFs:** Escenarios de precio del subyacente × relación histórica ETF/commodity
+- **Bond ETFs:** Escenarios de tasa × duration
 - **Country ETFs:** Escenarios macro del país × P/E histórico del índice
-- **Managed futures:** Rango histórico del ETF en distintos regímenes de volatilidad
 
-La clave es que Claude SIEMPRE articule: "pienso que puede ir a $X porque [razón fundamental], y puede caer a $Y porque [escenario adverso concreto]". Nunca "el stop loss es $X porque está 2 ATRs abajo".
+##### CAPA 2: RATIO TÉCNICO — "¿Es buen momento para entrar?"
+
+Una vez que el fundamental dice "hay valor", evaluar el setup técnico para determinar el ratio operativo real. Este es el ratio que decide la recomendación.
+
+**Paso 1: Clasificar el tipo de entrada**
+
+Mirar precio vs MAs (50, 100, 200) y RSI para determinar qué tipo de trade es:
+
+| Situación | Tipo de entrada |
+|---|---|
+| Precio cruza MA200 al alza | Cambio de tendencia |
+| Precio retrocede a MA50 desde arriba, en tendencia alcista | Pullback en tendencia |
+| RSI < 30, precio muy debajo de MAs | Rebote de oversold |
+| Precio rompe 52w high o resistencia clara | Breakout |
+| Precio toca MA200 desde arriba y rebota | Soporte de tendencia |
+| Precio debajo de todas las MAs, sin soporte claro | ❌ No hay setup — no entrar |
+
+**Paso 2: Asignar stop loss según el tipo de entrada**
+
+El stop es donde la RAZÓN de la entrada deja de existir:
+
+| Tipo de entrada | Stop Loss | Por qué ahí |
+|---|---|---|
+| Cambio de tendencia (rompe MA200) | Cierre debajo de MA200 | No era cambio de tendencia, fue breakout falso |
+| Pullback en tendencia (toca MA50) | Cierre debajo de MA100 | Si pierde la 100, no fue dip sino reversión |
+| Rebote de oversold | -8% desde entrada o nuevo mínimo en cierre | No hay piso, cuchillo cayendo |
+| Breakout | Cierre debajo del nivel que rompió | Volvió al rango, breakout falso |
+| Soporte de tendencia (MA200) | Cierre debajo de MA200 | Tendencia rota |
+
+**Paso 3: Asignar target según recorrido fundamental disponible**
+
+El target depende de cuánto recorrido queda hasta el bull case fundamental:
+
+| Distancia al bull fundamental | Target técnico | Gestión |
+|---|---|---|
+| **> 20%** | No fijar target. Usar trailing stop en MA50. | Dejar correr. Si pierde MA50, subir stop a MA100. Si pierde MA100, salir. |
+| **10-20%** | Target en precio base fundamental. | Tomar 50% en base, trailing el resto con MA50. |
+| **< 10%** | Primera resistencia técnica (MA50, swing high anterior). | Salir rápido, no hay recorrido. |
+
+**Paso 4: Calcular ratio técnico**
+
+```
+Target = según tabla anterior (resistencia técnica, o precio base, o trailing)
+Stop = según tipo de entrada
+Ratio = (Target - Precio) / (Precio - Stop)
+```
+
+**Paso 5: Decisión cruzando las dos capas**
+
+| Fundamental (Capa 1) | Técnico (Capa 2) | Decisión |
+|---|---|---|
+| Tercio inferior (hay valor) | Ratio > 2:1 | **COMPRAR — ALTA CONVICCIÓN** |
+| Tercio inferior (hay valor) | Ratio 1.5:1 a 2:1 | **COMPRAR — MEDIA CONVICCIÓN** |
+| Tercio inferior (hay valor) | Ratio < 1.5:1 | **WATCHLIST** — hay valor pero mal timing, esperar mejor setup |
+| Tercio medio (priceado) | Ratio > 3:1 | **COMPRAR — MEDIA CONVICCIÓN** (solo por el trade, sin descuento) |
+| Tercio medio (priceado) | Ratio < 3:1 | **NO COMPRAR** — ni descuento ni buen trade |
+| Tercio superior (todo priceado) | Cualquiera | **NO COMPRAR** |
+
+Claude debe articular las dos capas explícitamente: "Los fundamentals dicen que hay valor (precio en tercio inferior, base está 15% arriba). El setup técnico es pullback a MA50 con stop en MA100 a -5% y target en base a +15%, ratio 3:1. Recomiendo comprar."
 
 #### 2d. Clasificar cada recomendación por convicción
 - **ALTA CONVICCIÓN:** Múltiples señales alineadas (buen score + buenos fundamentals + buen timing + insiders comprando). Sizing normal.
@@ -521,21 +555,26 @@ Para cada una:
 - Técnicos: RSI X | vs MA200: +X% | ATR: X
 - Target analistas: $X (upside X%) — [X buy / X hold / X sell]
 
-**Escenarios de valuación:**
+**Capa 1 — Valuación fundamental:**
 | Escenario | EPS | P/E | Precio | vs actual |
 |---|---|---|---|---|
-| **Bull** | $X.XX (por qué) | XXx (P/E alto razonable) | **$XXX** | **+XX%** |
-| **Base** | $X.XX (por qué) | XXx (P/E promedio) | **$XXX** | **+XX%** |
-| **Bear** | $X.XX (por qué) | XXx (P/E piso) | **$XXX** | **-XX%** |
+| **Bull** | $X.XX (por qué) | XXx | **$XXX** | +XX% |
+| **Base** | $X.XX (por qué) | XXx | **$XXX** | +XX% |
+| **Bear** | $X.XX (por qué) | XXx | **$XXX** | -XX% |
 
 *P/E histórico: mín Xx — prom Xx — máx Xx (período YYYY-YYYY)*
 *Tendencia EPS: [acelerando/desacelerando/pico de ciclo/estable]*
+**Posición en el rango:** [tercio inferior ✅ / medio ⚠️ / superior ❌]
 
-**Stop Gain:** $XXX (escenario bull) — [explicar por qué el EPS podría llegar ahí]
-**Stop Loss:** $XXX (escenario bear) — [explicar qué tendría que pasar para que se materialice]
-**Ratio R/R: X.X:1** [✅ Favorable / ⚠️ Justo / ❌ Desfavorable]
+**Capa 2 — Trade técnico:**
+| | Nivel | Condición |
+|---|---|---|
+| **Target** | $XXX (+X%) | [ej: trailing MA50 — bull está 25% arriba, dejar correr] |
+| **Precio actual** | $XXX | Tipo de entrada: [pullback MA50 / breakout MA200 / etc.] |
+| **Stop Loss** | $XXX (-X%) | [ej: cierre debajo de MA200 — invalida tesis de cambio de tendencia] |
+| **Ratio técnico** | **X.X:1** | [✅ > 2:1 / ⚠️ 1.5-2:1 / ❌ < 1.5:1] |
 
-**Sizing sugerido:** [Basado en convicción + semáforo + ratio R/R]
+**Sizing sugerido:** [Basado en convicción cruzada + semáforo]
 ```
 
 #### TABLA RESUMEN RISK/REWARD (mostrar después de todas las recomendaciones individuales)
@@ -544,14 +583,15 @@ Después de listar todas las recomendaciones, mostrar una tabla resumen para com
 
 ```
 ### Resumen Risk/Reward
-| Ticker | Precio | Bear (SL) | Base | Bull (SG) | Downside | Upside | Ratio | Convicción |
-|---|---|---|---|---|---|---|---|---|
-| XXX | $XX | $XX (-X%) | $XX (+X%) | $XX (+X%) | -X% | +X% | X.X:1 ✅ | ALTA |
-| YYY | $XX | $XX (-X%) | $XX (+X%) | $XX (+X%) | -X% | +X% | X.X:1 ⚠️ | MEDIA |
-| ~~ZZZ~~ | $XX | $XX (-X%) | $XX (+X%) | $XX (+X%) | -X% | +X% | X.X:1 ❌ | DESCARTADO |
+| Ticker | Precio | Posición fundamental | Setup técnico | Stop | Target | Ratio técnico | Decisión |
+|---|---|---|---|---|---|---|---|
+| XXX | $XX | Tercio inferior ✅ | Pullback MA50 | $XX (-X%) | $XX (+X%) | X.X:1 ✅ | ALTA |
+| YYY | $XX | Tercio inferior ✅ | Breakout MA200 | $XX (-X%) | trailing MA50 | X.X:1 ⚠️ | MEDIA |
+| ~~ZZZ~~ | $XX | Tercio superior ❌ | — | — | — | — | DESCARTADO: todo priceado |
+| ~~WWW~~ | $XX | Tercio inferior ✅ | Sin setup ❌ | — | — | — | WATCHLIST: buen value, mal timing |
 ```
 
-Siempre incluir los tickers analizados que NO pasaron el filtro de ratio (< 1.5:1) con ❌ y una línea explicando por qué: "EPS en pico de ciclo, mercado ya pricea normalización" o "upside limitado, solo X% al escenario bull". Esto le da transparencia al usuario sobre qué se analizó y por qué no se recomendó.
+Siempre incluir los tickers analizados que NO pasaron alguno de los filtros con ❌ y una línea explicando cuál de las dos capas falló: "fundamental ok pero sin setup técnico" o "buen trade técnico pero precio ya en el bull case".
 
 #### WATCHLIST (si hay tickers interesantes pero no es momento)
 
