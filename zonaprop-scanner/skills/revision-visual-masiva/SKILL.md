@@ -32,6 +32,8 @@ Devuelve JSON con: id, link, imagen, **imagenes** (array de TODAS las URLs de fo
 
 **Para ponderar amplitud usar m2_cubiertos (no el total): 60 m² con 40 cubiertos es chico. Para comparar precios usar precio_m2_ponderado cuando exista.**
 
+Desde 2026-06-12 también vienen: **antiguedad** (años, 0 = a estrenar), **expensas** (ARS/mes), **disposicion** (Frente/Contrafrente/Interno/Lateral), **orientacion** (N/S/E/O), **luminosidad** (declarada por el aviso), **pill** (ej. "Apto crédito"), **inmobiliaria**. Usarlos para pre-rankear y para el comentario de cada finalista (ej. priorizar frente + luminoso + antigüedad baja; penalizar expensas altas vs precio). La **descripcion** completa del aviso NO viene en bulk_export: para las finalistas leerla desde Supabase (tabla propiedades, por id o link) — sirve para detectar red flags que las fotos no muestran ("a reciclar", "apto profesional", "ocupado con inquilino", "al pozo").
+
 Parámetros opcionales de filtro: barrio, precio_min, precio_max, m2_min, m2_max, ambientes, solo_con_imagen.
 
 Guardar el array completo de propiedades en `/tmp/propiedades.json`.

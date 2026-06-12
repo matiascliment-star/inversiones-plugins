@@ -1,6 +1,6 @@
 {
   "name": "zonaprop-scanner",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Analiza visualmente propiedades de ZonaProp desde Supabase. Detecta oportunidades, baja fotos del CDN y las muestra para analisis visual de estado, terminaciones, red flags y potencial de inversion.",
   "author": {
     "name": "Estudio Garcia Climent"

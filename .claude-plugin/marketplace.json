@@ -17,7 +17,7 @@
     },
     {
       "name": "zonaprop-scanner",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "source": "./zonaprop-scanner",
       "description": "Analisis visual de propiedades ZonaProp desde Supabase",
       "author": {
