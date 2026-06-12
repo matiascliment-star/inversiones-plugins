@@ -28,7 +28,9 @@ Iterar todas las páginas así:
 3. Si `page < total_pages`, seguir llamando con `page=2`, `page=3`, etc.
 4. Concatenar todas las `propiedades` de cada página en un solo array
 
-Devuelve JSON con: id, link, imagen, **imagenes** (array de TODAS las URLs de fotos, hasta 8), barrio, direccion, precio, moneda, m2, precio_m2, ambientes, dormitorios, banos, cochera, diff_vs_prom_general.
+Devuelve JSON con: id, link, imagen, **imagenes** (array de TODAS las URLs de fotos, hasta 8), barrio, direccion, precio, moneda, m2, **m2_cubiertos**, **m2_descubiertos**, precio_m2, **precio_m2_ponderado** (precio / (cub + 0.5·desc), el que mejor refleja el valor real), ambientes, dormitorios, banos, cochera, diff_vs_prom_general.
+
+**Para ponderar amplitud usar m2_cubiertos (no el total): 60 m² con 40 cubiertos es chico. Para comparar precios usar precio_m2_ponderado cuando exista.**
 
 Parámetros opcionales de filtro: barrio, precio_min, precio_max, m2_min, m2_max, ambientes, solo_con_imagen.
 
@@ -103,8 +105,11 @@ Después del ranking, generar un HTML interactivo con fotos embebidas usando `sc
          "direccion": "...",
          "precio": 164000,
          "m2": 67,
+         "m2_cubiertos": 60,
+         "m2_descubiertos": 7,
          "ambientes": 2,
          "precio_m2": 2448,
+         "precio_m2_ponderado": 2583,
          "diff_vs_prom": -31,
          "comentario": "Descripción de Claude...",
          "link": "https://www.zonaprop.com.ar/...",

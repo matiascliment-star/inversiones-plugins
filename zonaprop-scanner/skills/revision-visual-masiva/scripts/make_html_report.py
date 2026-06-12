@@ -228,19 +228,29 @@ def build_card(prop):
     # Details
     precio = prop.get("precio")
     m2 = prop.get("m2")
+    m2_cub = prop.get("m2_cubiertos")
+    m2_desc = prop.get("m2_descubiertos")
     amb = prop.get("ambientes")
     precio_m2 = prop.get("precio_m2")
+    precio_m2_pond = prop.get("precio_m2_ponderado")
     diff = prop.get("diff_vs_prom")
 
     details = []
     if precio:
         details.append(f'<div class="detail"><div class="val">{fmt_price(precio)}</div><div class="lbl">Precio</div></div>')
     if m2:
-        details.append(f'<div class="detail"><div class="val">{m2} m\u00b2</div><div class="lbl">Superficie</div></div>')
+        if m2_cub:
+            sup_val = f"{m2:g} m\u00b2"
+            sup_lbl = f"{m2_cub:g} cub + {m2_desc:g} desc" if m2_desc else "todo cubierto"
+            details.append(f'<div class="detail"><div class="val">{sup_val}</div><div class="lbl">{sup_lbl}</div></div>')
+        else:
+            details.append(f'<div class="detail"><div class="val">{m2:g} m\u00b2</div><div class="lbl">Superficie</div></div>')
     if amb:
         details.append(f'<div class="detail"><div class="val">{amb} amb</div><div class="lbl">Ambientes</div></div>')
     if precio_m2:
         details.append(f'<div class="detail"><div class="val">USD {precio_m2:,.0f}/m\u00b2</div><div class="lbl">Precio por m\u00b2</div></div>')
+    if precio_m2_pond:
+        details.append(f'<div class="detail"><div class="val">USD {precio_m2_pond:,.0f}/m\u00b2</div><div class="lbl">Ponderado (desc 50%)</div></div>')
     if diff is not None:
         diff_str, diff_css = fmt_diff(diff)
         details.append(f'<div class="detail"><div class="val {diff_css}">{diff_str}</div><div class="lbl">vs. Promedio barrio</div></div>')

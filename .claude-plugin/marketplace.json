@@ -11,14 +11,18 @@
       "version": "1.0.0",
       "source": "./quant-advisor",
       "description": "Asesor financiero cuantitativo con proteccion VAA/DAA y factor scoring",
-      "author": { "name": "Matias Climent" }
+      "author": {
+        "name": "Matias Climent"
+      }
     },
     {
       "name": "zonaprop-scanner",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "./zonaprop-scanner",
       "description": "Analisis visual de propiedades ZonaProp desde Supabase",
-      "author": { "name": "Matias Climent" }
+      "author": {
+        "name": "Matias Climent"
+      }
     }
   ]
 }
